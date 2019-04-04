@@ -28,6 +28,10 @@ class MainActivity : AppCompatActivity(), View.OnClickListener {
         ContactsContract.Data.DISPLAY_NAME,
         ContactsContract.CommonDataKinds.Email.DATA
     )
+    private val projection2 = arrayOf(
+        ContactsContract.Data.CONTACT_ID,
+        ContactsContract.CommonDataKinds.Phone.NUMBER
+    )
     private var contact_id: Int? = null
     private var hasNumber: String? = null
 
@@ -60,7 +64,21 @@ class MainActivity : AppCompatActivity(), View.OnClickListener {
             this.email.text = Editable.Factory.getInstance().newEditable(cursor.getString(email))
             contact_id = cursor.getInt(id)
             hasNumber = cursor.getString(cursor.getColumnIndex(projection[1]))
-            phone.text = Editable.Factory.getInstance().newEditable(hasNumber)
+
+            if (hasNumber.equals("1")) {
+                val where = ContactsContract.Data.CONTACT_ID + " = ?"
+                val cursorPhone = contentResolver?.query(
+                    ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                    projection2,
+                    where,
+                    arrayOf(contact_id.toString()),
+                    null,
+                    null
+                )
+                cursorPhone!!.moveToFirst()
+                this.phone.text = Editable.Factory.getInstance()
+                    .newEditable(cursorPhone.getString(cursorPhone.getColumnIndex(projection2[1])))
+            }
 
             update.isEnabled = true
             this.name.inputType = InputType.TYPE_CLASS_TEXT
@@ -73,16 +91,21 @@ class MainActivity : AppCompatActivity(), View.OnClickListener {
 
         when (view) {
             update -> {
-
-                if (Build.VERSION.SDK_INT > Build.VERSION_CODES.M && checkSelfPermission(Manifest.permission.WRITE_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
-                    requestPermissions(arrayOf(Manifest.permission.WRITE_CONTACTS), 2)
-                } else {
-                    updateContact()
-                }
+                updateContact()
             }
             else -> {
-                var intent = Intent(Intent.ACTION_PICK, ContactsContract.CommonDataKinds.Email.CONTENT_URI)
-                startActivityForResult(intent, PICK_CONTACT)
+
+                if (Build.VERSION.SDK_INT > Build.VERSION_CODES.M && checkSelfPermission(Manifest.permission.WRITE_CONTACTS) != PackageManager.PERMISSION_GRANTED
+                    && checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED
+                ) {
+                    requestPermissions(
+                        arrayOf(Manifest.permission.WRITE_CONTACTS, Manifest.permission.READ_CONTACTS),
+                        2
+                    )
+                } else {
+                    var intent = Intent(Intent.ACTION_PICK, ContactsContract.CommonDataKinds.Email.CONTENT_URI)
+                    startActivityForResult(intent, PICK_CONTACT)
+                }
             }
         }
 
@@ -94,7 +117,7 @@ class MainActivity : AppCompatActivity(), View.OnClickListener {
 
         when (requestCode) {
             2 -> {
-                if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                if (grantResults[0] == PackageManager.PERMISSION_GRANTED && grantResults[1] == PackageManager.PERMISSION_GRANTED) {
                     updateContact()
                 } else {
                     Toast.makeText(
@@ -110,15 +133,36 @@ class MainActivity : AppCompatActivity(), View.OnClickListener {
 
     private fun updateContact() {
 
+        if (name.text.isEmpty() || email.text.isEmpty() || phone.text.isEmpty()) {
+            Utility().showToast(this, "All fields are mandatory")
+            return
+        }
+
         val where = ContactsContract.Data.CONTACT_ID + " = ? AND " + ContactsContract.Data.MIMETYPE + " = ?"
-        val emailParam: Array<String> =
+        val phoneParam: Array<String> =
             arrayOf<String>(contact_id.toString(), ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE)
+        val nameParam: Array<String> =
+            arrayOf<String>(contact_id.toString(), ContactsContract.CommonDataKinds.StructuredName.CONTENT_ITEM_TYPE)
+        val emailParam: Array<String> =
+            arrayOf<String>(contact_id.toString(), ContactsContract.CommonDataKinds.Email.CONTENT_ITEM_TYPE)
 
         var list = ArrayList<ContentProviderOperation>()
         list.add(
             ContentProviderOperation.newUpdate(ContactsContract.Data.CONTENT_URI)
-                .withSelection(where, emailParam)
+                .withSelection(where, phoneParam)
                 .withValue(ContactsContract.CommonDataKinds.Phone.NUMBER, phone.text.toString())
+                .build()
+        )
+        list.add(
+            ContentProviderOperation.newUpdate(ContactsContract.Data.CONTENT_URI)
+                .withSelection(where, emailParam)
+                .withValue(ContactsContract.CommonDataKinds.Email.DATA, email.text.toString())
+                .build()
+        )
+        list.add(
+            ContentProviderOperation.newUpdate(ContactsContract.Data.CONTENT_URI)
+                .withSelection(where, nameParam)
+                .withValue(ContactsContract.CommonDataKinds.StructuredName.GIVEN_NAME, name.text.toString())
                 .build()
         )
 
@@ -127,5 +171,9 @@ class MainActivity : AppCompatActivity(), View.OnClickListener {
         email.text.clear()
         phone.text.clear()
         name.text.clear()
+        name.inputType = InputType.TYPE_NULL
+        phone.inputType = InputType.TYPE_NULL
+        email.inputType = InputType.TYPE_NULL
+        update.isEnabled = false
     }
 }
